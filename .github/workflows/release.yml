@@ -49,6 +49,7 @@ jobs:
       # ─────────────────────────────────────────────────────────────────
       - name: Generate GitHub App token
         id: app-token
+        if: ${{ secrets.APP_ID != '' }}
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.APP_ID }}
@@ -58,7 +59,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
           persist-credentials: true
 
       # ─────────────────────────────────────────────────────────────────
@@ -194,6 +195,7 @@ jobs:
       # 5. Import signing certificate
       # ─────────────────────────────────────────────────────────────────
       - name: Import Code Signing Certificate
+        if: steps.channel.outputs.channel != 'copy'
         env:
           CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_APPLICATION_CERTIFICATE_P12 }}
           CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD }}
@@ -224,6 +226,7 @@ jobs:
       # 6. Set up notarization credentials
       # ─────────────────────────────────────────────────────────────────
       - name: Set Up Notarization Credentials
+        if: steps.channel.outputs.channel != 'copy'
         env:
           API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
           API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
@@ -236,6 +239,7 @@ jobs:
       # 7. Set up Sparkle signing key
       # ─────────────────────────────────────────────────────────────────
       - name: Set Up Sparkle Signing Key
+        if: steps.channel.outputs.channel != 'copy'
         env:
           SPARKLE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
@@ -278,6 +282,7 @@ jobs:
             alpha)   SWIFT_FLAG="ALPHA";   ICON_NAME="AppIconAlpha"   ;;
             beta)    SWIFT_FLAG="BETA";    ICON_NAME="AppIconBeta"    ;;
             stable)  SWIFT_FLAG="";        ICON_NAME="AppIcon"        ;;
+            copy)    SWIFT_FLAG="";        ICON_NAME="AppIcon"        ;;
           esac
           echo "swift_flag=$SWIFT_FLAG" >> "$GITHUB_OUTPUT"
           echo "icon_name=$ICON_NAME" >> "$GITHUB_OUTPUT"
@@ -286,6 +291,7 @@ jobs:
       # 11. Archive
       # ─────────────────────────────────────────────────────────────────
       - name: Archive
+        if: steps.channel.outputs.channel != 'copy'
         run: |
           CHANNEL="${{ steps.channel.outputs.channel }}"
           SWIFT_FLAG="${{ steps.build_settings.outputs.swift_flag }}"
@@ -314,6 +320,7 @@ jobs:
       # 12. Export archive to .app
       # ─────────────────────────────────────────────────────────────────
       - name: Export Archive
+        if: steps.channel.outputs.channel != 'copy'
         run: |
           xcodebuild -exportArchive \
             -archivePath build/${APP_NAME}.xcarchive \
@@ -323,6 +330,40 @@ jobs:
       # ─────────────────────────────────────────────────────────────────
       # 12b. Ensure BluetoothHUDAnimations are in the app bundle
       # ─────────────────────────────────────────────────────────────────
+      - name: Build unsigned app
+        if: steps.channel.outputs.channel == 'copy'
+        run: |
+          sudo DevToolsSecurity -enable
+
+          if ! plutil_out=$(plutil -remove com.apple.security.mach-services DynamicIsland/DynamicIsland.entitlements 2>&1); then
+            if printf '%s' "$plutil_out" | grep -q "No value to remove"; then
+              echo "mach-services entitlement already absent, continuing."
+            else
+              echo "::error::plutil failed to modify entitlements: $plutil_out"
+              exit 1
+            fi
+          fi
+
+          xcodebuild build \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination "platform=macOS" \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_INJECT_BASE_ENTITLEMENTS=YES \
+            ASSETCATALOG_COMPILER_APPICON_NAME="${{ steps.build_settings.outputs.icon_name }}"
+
+          APP=$(find build/DerivedData/Build/Products/Release -name "${APP_NAME}.app" -maxdepth 2 | head -1)
+          if [ -z "$APP" ]; then
+            echo "::error::Built app not found"
+            exit 1
+          fi
+          mkdir -p build/export
+          cp -R "$APP" "build/export/${APP_NAME}.app"
+
       - name: Copy BluetoothHUD Animations
         run: |
           APP_RESOURCES="build/export/${APP_NAME}.app/Contents/Resources"
@@ -353,6 +394,7 @@ jobs:
       # 13. Code sign Sparkle XPC services
       # ─────────────────────────────────────────────────────────────────
       - name: Sign Sparkle XPC Services
+        if: steps.channel.outputs.channel != 'copy'
         run: |
           APP_PATH="build/export/${APP_NAME}.app"
           ENTITLEMENTS_PATH="$RUNNER_TEMP/${APP_NAME}.entitlements"
@@ -418,6 +460,7 @@ jobs:
       # 15. Sign DMG
       # ─────────────────────────────────────────────────────────────────
       - name: Sign DMG
+        if: steps.channel.outputs.channel != 'copy'
         run: |
           DMG_PATH="build/${{ steps.version.outputs.dmg_name }}"
           codesign --force \
@@ -429,6 +472,7 @@ jobs:
       # 16. Notarize DMG
       # ─────────────────────────────────────────────────────────────────
       - name: Notarize DMG
+        if: steps.channel.outputs.channel != 'copy'
         env:
           API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           API_KEY_ISSUER: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
@@ -449,6 +493,7 @@ jobs:
       # 17. Generate Sparkle appcast
       # ─────────────────────────────────────────────────────────────────
       - name: Generate Sparkle Appcast
+        if: steps.channel.outputs.channel != 'copy'
         run: |
           CHANNEL="${{ steps.channel.outputs.channel }}"
           VERSION="${{ steps.version.outputs.version }}"
