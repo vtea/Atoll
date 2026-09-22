@@ -401,6 +401,16 @@ jobs:
           fi
           echo "✅ BluetoothHUDAnimations: $COPIED .mov files copied"
 
+      # An ad-hoc signature made on the runner is invalid on every other Mac.
+      # Copying resources after that seal also breaks it. Gatekeeper then
+      # reports a Safari download as damaged. Leave the app unsigned.
+      - name: Drop ad-hoc signature
+        if: steps.channel.outputs.channel == 'copy'
+        run: |
+          APP_PATH="build/export/${APP_NAME}.app"
+          codesign --remove-signature "$APP_PATH/Contents/MacOS/${APP_NAME}"
+          codesign --remove-signature "$APP_PATH"
+
       # ─────────────────────────────────────────────────────────────────
       # 13. Code sign Sparkle XPC services
       # ─────────────────────────────────────────────────────────────────
@@ -612,6 +622,12 @@ jobs:
           # Create tag
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # copy republishes the same version after the package is rebuilt.
+          if [ "${{ steps.channel.outputs.channel }}" = "copy" ] && git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
+            gh release delete "$TAG" --yes --cleanup-tag || true
+            git push origin ":refs/tags/$TAG" || true
+            git tag -d "$TAG" || true
+          fi
           git tag -a "$TAG" -m "Release $VERSION"
           git push origin "$TAG"
 
