@@ -46,11 +46,12 @@ final class ExtensionXPCServiceHost: NSObject, NSXPCListenerDelegate {
     func start() {
         guard listener == nil else { return }
 
-        // Starting NSXPCListener(machServiceName:) without
-        // com.apple.security.mach-services kills the process. CI and unsigned
-        // copy builds strip or omit that entitlement, so skip the listener.
-        if AppRuntimeEnvironment.isUITesting || !hasMachServicesEntitlement {
-            Logger.log("Bypassing Atoll XPC listener without mach-services entitlement", category: .extensions)
+        // NSXPCListener(machServiceName:) is killed unless mach-services is
+        // present and actually granted. Ad-hoc and unsigned signatures can
+        // still carry the entitlement blob; SecTask reports that blob, and
+        // amfid kills the process anyway. Only a team-signed binary may listen.
+        if AppRuntimeEnvironment.isUITesting || !canHostMachService {
+            Logger.log("Bypassing Atoll XPC listener without a granted mach-services entitlement", category: .extensions)
             return
         }
 
@@ -60,6 +61,10 @@ final class ExtensionXPCServiceHost: NSObject, NSXPCListenerDelegate {
         listener.resume()
 
         Logger.log("Started Atoll XPC listener", category: .extensions)
+    }
+
+    private var canHostMachService: Bool {
+        hasMachServicesEntitlement && signatureGrantsRestrictedEntitlements
     }
 
     private var hasMachServicesEntitlement: Bool {
@@ -75,6 +80,30 @@ final class ExtensionXPCServiceHost: NSObject, NSXPCListenerDelegate {
             return false
         }
         return value != nil
+    }
+
+    /// Team-signed Developer ID and Apple Development builds grant restricted
+    /// entitlements. Ad-hoc signatures set `kSecCodeSignatureAdhoc` and do not.
+    private var signatureGrantsRestrictedEntitlements: Bool {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return false }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return false }
+
+        var info: CFDictionary?
+        let status = SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: kSecCSSigningInformation),
+            &info
+        )
+        guard status == errSecSuccess, let info = info as? [String: Any] else { return false }
+
+        let flags = (info[kSecCodeInfoFlags as String] as? NSNumber)?.uint32Value ?? 0
+        if flags & SecCodeSignatureFlags.adhoc.rawValue != 0 { return false }
+        guard let team = info[kSecCodeInfoTeamIdentifier as String] as? String, !team.isEmpty else {
+            return false
+        }
+        return true
     }
 
     func stop() {

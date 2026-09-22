@@ -7,7 +7,8 @@ on:
       - alpha
       - beta
       - main
-      - copy
+    tags:
+      - "v[0-9]*"
 
   # Allow manual trigger for testing
   workflow_dispatch:
@@ -80,6 +81,10 @@ jobs:
         id: channel
         run: |
           BRANCH="${GITHUB_REF_NAME}"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            CHANNEL="copy"
+            BRANCH="copy"
+          else
           case "$BRANCH" in
             nightly) CHANNEL="nightly" ;;
             alpha)   CHANNEL="alpha"   ;;
@@ -88,6 +93,7 @@ jobs:
             copy)    CHANNEL="copy"    ;;
             *)       echo "::error::Unexpected branch: $BRANCH"; exit 1 ;;
           esac
+          fi
           echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
           echo "🏷️ Channel: $CHANNEL (branch: $BRANCH)"
@@ -100,6 +106,14 @@ jobs:
         run: |
           BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
           CHANNEL="${{ steps.channel.outputs.channel }}"
+          if ! [[ "$BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::VERSION must contain X.Y.Z"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v${BASE_VERSION}" ]; then
+            echo "::error::Release tag must match VERSION"
+            exit 1
+          fi
           DATE_STAMP=$(date -u +%Y%m%d)
 
           # ── Monotonic build number allocator ──
@@ -179,6 +193,9 @@ jobs:
       # ─────────────────────────────────────────────────────────────────
       # 4. Select Xcode
       # ─────────────────────────────────────────────────────────────────
+      - name: Validate release configuration
+        run: python3 -m unittest tests.test_privacy_configuration tests.test_release_workflow
+
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -203,10 +220,54 @@ jobs:
           fi
 
       # ─────────────────────────────────────────────────────────────────
-      # 5. Import signing certificate
+      # 5. Decide whether this build can be notarized
+      # ─────────────────────────────────────────────────────────────────
+      - name: Detect code signing credentials
+        id: signing
+        env:
+          CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_APPLICATION_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_KEY_ISSUER: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
+        run: |
+          CHANNEL="${{ steps.channel.outputs.channel }}"
+          if [ "$CHANNEL" != "copy" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          missing=0
+          present=0
+          for name in CERTIFICATE_P12 CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD API_KEY_P8 API_KEY_ID API_KEY_ISSUER; do
+            value="${!name}"
+            if [ -z "$value" ]; then
+              echo "::warning::Copy channel is missing $name"
+              missing=1
+            else
+              present=$((present + 1))
+            fi
+          done
+
+          if [ "$missing" -ne 0 ] && [ "$present" -ne 0 ]; then
+            echo "::error::Signing credentials are incomplete. Refusing to downgrade to an unsigned release."
+            exit 1
+          fi
+
+          if [ "$missing" -eq 0 ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "Copy channel will be Developer ID signed and notarized."
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Copy channel will build an unsigned app. Safari downloads stay quarantined until the user clears com.apple.quarantine."
+          fi
+
+      # ─────────────────────────────────────────────────────────────────
+      # 5b. Import signing certificate
       # ─────────────────────────────────────────────────────────────────
       - name: Import Code Signing Certificate
-        if: steps.channel.outputs.channel != 'copy'
+        if: steps.signing.outputs.enabled == 'true'
         env:
           CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_APPLICATION_CERTIFICATE_P12 }}
           CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD }}
@@ -229,6 +290,21 @@ jobs:
             -k "$KEYCHAIN_PATH"
           rm -f "$CERT_PATH"
 
+          # Resolve the imported certificate instead of using the upstream author's identity.
+          SIGNING_IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | sed -n 's/.*"\(Developer ID Application:.*\)".*/\1/p')
+          if [ -z "$SIGNING_IDENTITY" ] || [ "$(printf '%s\n' "$SIGNING_IDENTITY" | wc -l | tr -d ' ')" != "1" ]; then
+            echo "::error::Expected exactly one valid Developer ID Application certificate."
+            exit 1
+          fi
+          SIGNING_TEAM=$(printf '%s' "$SIGNING_IDENTITY" | sed -n 's/.*(\([A-Z0-9]*\))$/\1/p')
+          if [ -z "$SIGNING_TEAM" ]; then
+            echo "::error::Cannot determine the signing team."
+            exit 1
+          fi
+          echo "SIGNING_IDENTITY=$SIGNING_IDENTITY" >> "$GITHUB_ENV"
+          echo "TEAM_ID=$SIGNING_TEAM" >> "$GITHUB_ENV"
+          /usr/libexec/PlistBuddy -c "Set :teamID $SIGNING_TEAM" ExportOptions.plist
+
           # Add keychain to search list
           security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
@@ -237,7 +313,7 @@ jobs:
       # 6. Set up notarization credentials
       # ─────────────────────────────────────────────────────────────────
       - name: Set Up Notarization Credentials
-        if: steps.channel.outputs.channel != 'copy'
+        if: steps.signing.outputs.enabled == 'true'
         env:
           API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
           API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
@@ -302,7 +378,7 @@ jobs:
       # 11. Archive
       # ─────────────────────────────────────────────────────────────────
       - name: Archive
-        if: steps.channel.outputs.channel != 'copy'
+        if: steps.signing.outputs.enabled == 'true'
         run: |
           CHANNEL="${{ steps.channel.outputs.channel }}"
           SWIFT_FLAG="${{ steps.build_settings.outputs.swift_flag }}"
@@ -320,7 +396,7 @@ jobs:
             -scheme "$SCHEME" \
             -archivePath build/${APP_NAME}.xcarchive \
             -configuration Release \
-            CODE_SIGN_IDENTITY="Developer ID Application" \
+            CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CODE_SIGN_STYLE=Manual \
             PROVISIONING_PROFILE_SPECIFIER="" \
@@ -331,7 +407,7 @@ jobs:
       # 12. Export archive to .app
       # ─────────────────────────────────────────────────────────────────
       - name: Export Archive
-        if: steps.channel.outputs.channel != 'copy'
+        if: steps.signing.outputs.enabled == 'true'
         run: |
           xcodebuild -exportArchive \
             -archivePath build/${APP_NAME}.xcarchive \
@@ -339,12 +415,22 @@ jobs:
             -exportOptionsPlist ExportOptions.plist
 
       # ─────────────────────────────────────────────────────────────────
-      # 12b. Ensure BluetoothHUDAnimations are in the app bundle
+      # 12b. Unsigned copy build, used only when Apple credentials are absent
       # ─────────────────────────────────────────────────────────────────
       - name: Build unsigned app
-        if: steps.channel.outputs.channel == 'copy'
+        if: steps.signing.outputs.enabled != 'true'
         run: |
           sudo DevToolsSecurity -enable
+
+          # Restricted entitlements in an ad-hoc signature get the process killed.
+          if ! plutil_out=$(plutil -remove com.apple.security.mach-services DynamicIsland/DynamicIsland.entitlements 2>&1); then
+            if printf '%s' "$plutil_out" | grep -q "No value to remove"; then
+              echo "mach-services entitlement already absent, continuing."
+            else
+              echo "::error::plutil failed to modify entitlements: $plutil_out"
+              exit 1
+            fi
+          fi
 
           xcodebuild build \
             -project "$PROJECT" \
@@ -365,6 +451,9 @@ jobs:
           mkdir -p build/export
           cp -R "$APP" "build/export/${APP_NAME}.app"
 
+      # ─────────────────────────────────────────────────────────────────
+      # 12c. Ensure BluetoothHUDAnimations are in the app bundle
+      # ─────────────────────────────────────────────────────────────────
       - name: Copy BluetoothHUD Animations
         run: |
           APP_RESOURCES="build/export/${APP_NAME}.app/Contents/Resources"
@@ -391,11 +480,50 @@ jobs:
           fi
           echo "✅ BluetoothHUDAnimations: $COPIED .mov files copied"
 
+      # Resources copied above break any seal from the build. An outer
+      # signature with nested signatures still attached is what Gatekeeper
+      # reports as a damaged Safari download. Strip every nested seal.
+      - name: Remove code signatures
+        if: steps.signing.outputs.enabled != 'true'
+        run: |
+          APP_PATH="build/export/${APP_NAME}.app"
+          find "$APP_PATH" -depth \( \
+              -name "*.app" -o \
+              -name "*.framework" -o \
+              -name "*.xpc" -o \
+              -name "*.appex" -o \
+              -name "*.bundle" -o \
+              -name "*.dylib" \
+            \) -print0 |
+          while IFS= read -r -d '' item; do
+            codesign --remove-signature "$item" || true
+          done
+
+          # Bundle removal does not cover standalone Mach-O helpers.
+          find "$APP_PATH" -type f -print0 |
+          while IFS= read -r -d '' item; do
+            if codesign -dv "$item" >/dev/null 2>&1; then
+              codesign --remove-signature "$item" || true
+            fi
+          done
+
+          leftover=$(find "$APP_PATH" -name "_CodeSignature" -print -quit)
+          if [ -n "$leftover" ]; then
+            echo "::error::Code signatures remain in the unsigned app"
+            find "$APP_PATH" -name "_CodeSignature" -print
+            exit 1
+          fi
+          if codesign -dv "$APP_PATH" >/dev/null 2>&1; then
+            echo "::error::App bundle is still signed"
+            exit 1
+          fi
+          echo "Unsigned app has no code signature."
+
       # ─────────────────────────────────────────────────────────────────
       # 13. Code sign Sparkle XPC services
       # ─────────────────────────────────────────────────────────────────
       - name: Sign Sparkle XPC Services
-        if: steps.channel.outputs.channel != 'copy'
+        if: steps.signing.outputs.enabled == 'true'
         run: |
           APP_PATH="build/export/${APP_NAME}.app"
           ENTITLEMENTS_PATH="$RUNNER_TEMP/${APP_NAME}.entitlements"
@@ -408,7 +536,7 @@ jobs:
           # Sign Sparkle XPC services with hardened runtime
           find "$APP_PATH" -name "*.xpc" -print0 | while IFS= read -r -d '' xpc; do
             codesign --force --options runtime \
-              --sign "Developer ID Application: Hariharan Mudaliar ($TEAM_ID)" \
+              --sign "$SIGNING_IDENTITY" \
               "$xpc"
           done
 
@@ -416,14 +544,14 @@ jobs:
           SPARKLE_FW="$APP_PATH/Contents/Frameworks/Sparkle.framework"
           if [ -d "$SPARKLE_FW" ]; then
             codesign --force --options runtime \
-              --sign "Developer ID Application: Hariharan Mudaliar ($TEAM_ID)" \
+              --sign "$SIGNING_IDENTITY" \
               "$SPARKLE_FW"
           fi
 
           # Re-sign the entire app
           codesign --force --options runtime \
             --entitlements "$ENTITLEMENTS_PATH" \
-            --sign "Developer ID Application: Hariharan Mudaliar ($TEAM_ID)" \
+            --sign "$SIGNING_IDENTITY" \
             "$APP_PATH"
 
           # Verify
@@ -461,11 +589,11 @@ jobs:
       # 15. Sign DMG
       # ─────────────────────────────────────────────────────────────────
       - name: Sign DMG
-        if: steps.channel.outputs.channel != 'copy'
+        if: steps.signing.outputs.enabled == 'true'
         run: |
           DMG_PATH="build/${{ steps.version.outputs.dmg_name }}"
           codesign --force \
-            -s "Developer ID Application: Hariharan Mudaliar ($TEAM_ID)" \
+            -s "$SIGNING_IDENTITY" \
             "$DMG_PATH"
           codesign --verify --verbose "$DMG_PATH"
 
@@ -473,7 +601,7 @@ jobs:
       # 16. Notarize DMG
       # ─────────────────────────────────────────────────────────────────
       - name: Notarize DMG
-        if: steps.channel.outputs.channel != 'copy'
+        if: steps.signing.outputs.enabled == 'true'
         env:
           API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           API_KEY_ISSUER: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
@@ -579,13 +707,29 @@ jobs:
 
           # Write to file for gh release
           echo "$FULL_NOTES" > build/release_notes.md
+          if [ "$CHANNEL" = "copy" ] && [ "${{ steps.signing.outputs.enabled }}" != "true" ]; then
+            printf '%s\n' \
+              '' \
+              '### Opening this build' \
+              '' \
+              'This copy is not notarized. macOS marks a Safari download as damaged. Drag Atoll out of the disk image, then run:' \
+              '' \
+              '```' \
+              'xattr -dr com.apple.quarantine /Applications/Atoll.app' \
+              '```' \
+              '' \
+              'Use the path you actually dragged the app to.' \
+              '' \
+              'This unsigned build has no stable signing identity. macOS permissions may need to be removed and granted again after updates. Use builds signed by the same Developer ID team to retain identity across updates.' \
+              >> build/release_notes.md
+          fi
           echo "📝 Release notes written to build/release_notes.md"
 
       # ─────────────────────────────────────────────────────────────────
       # 19. Create GitHub Release
       # ─────────────────────────────────────────────────────────────────
       - name: Create GitHub Release
-        if: ${{ inputs.dry_run != 'true' }}
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -599,17 +743,16 @@ jobs:
             PRERELEASE_FLAG="--prerelease"
           fi
 
-          # Create tag
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # copy republishes the same version after the package is rebuilt.
-          if [ "${{ steps.channel.outputs.channel }}" = "copy" ] && git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
-            gh release delete "$TAG" --yes --cleanup-tag || true
-            git push origin ":refs/tags/$TAG" || true
-            git tag -d "$TAG" || true
+          # Published tags are immutable. Tag-triggered builds use that exact commit.
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            if [ "$(git rev-list -n 1 "$TAG")" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::Tag $TAG belongs to another commit; increment VERSION."
+              exit 1
+            fi
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
           fi
-          git tag -a "$TAG" -m "Release $VERSION"
-          git push origin "$TAG"
 
           # Create release
           gh release create "$TAG" \
@@ -627,7 +770,7 @@ jobs:
       # 20. Update channel-specific appcast in Updates/
       # ─────────────────────────────────────────────────────────────────
       - name: Update Channel Appcast
-        if: ${{ inputs.dry_run != 'true' && steps.channel.outputs.channel != 'copy' }}
+        if: ${{ !inputs.dry_run && steps.channel.outputs.channel != 'copy' }}
         run: |
           CHANNEL="${{ steps.channel.outputs.channel }}"
           VERSION="${{ steps.version.outputs.version }}"
@@ -707,7 +850,7 @@ jobs:
       # 21. Archive CHANGELOG for stable releases
       # ─────────────────────────────────────────────────────────────────
       - name: Archive Changelog (Stable Only)
-        if: ${{ steps.channel.outputs.channel == 'stable' && inputs.dry_run != 'true' }}
+        if: ${{ steps.channel.outputs.channel == 'stable' && !inputs.dry_run }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           DATE=$(date -u +%Y-%m-%d)

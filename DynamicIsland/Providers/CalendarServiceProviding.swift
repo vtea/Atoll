@@ -43,6 +43,17 @@ class CalendarService: CalendarServiceProviding {
 
     @MainActor
     func requestAccess(to type: EKEntityType) async -> Bool {
+        switch EKEventStore.authorizationStatus(for: type) {
+        case .authorized, .fullAccess:
+            return true
+        case .denied, .restricted:
+            return false
+        case .notDetermined, .writeOnly:
+            break
+        @unknown default:
+            return false
+        }
+
         do {
             return try await performAccessRequest(for: type)
         } catch {

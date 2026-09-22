@@ -107,8 +107,16 @@ final class FullDiskAccessPermissionStore: ObservableObject {
     @Published private(set) var isAuthorized: Bool = FullDiskAccessAuthorization.hasPermission()
 
     private var pollingTask: Task<Void, Never>?
+    private var activationObserver: AnyCancellable?
 
-    private init() {}
+    private init() {
+        activationObserver = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshStatus()
+                }
+            }
+    }
 
     deinit {
         pollingTask?.cancel()
@@ -119,6 +127,8 @@ final class FullDiskAccessPermissionStore: ObservableObject {
     }
 
     func requestAccessPrompt() {
+        refreshStatus()
+        guard !isAuthorized else { return }
 #if os(macOS)
         let alert = NSAlert()
         alert.messageText = String(localized: "Full Disk Access Required")
@@ -156,7 +166,11 @@ final class FullDiskAccessPermissionStore: ObservableObject {
             guard let self else { return }
 
             for _ in 0..<40 {
-                try? await Task.sleep(nanoseconds: 500_000_000)
+                do {
+                    try await Task.sleep(nanoseconds: 500_000_000)
+                } catch {
+                    return
+                }
                 let status = FullDiskAccessAuthorization.hasPermission()
 
                 await MainActor.run {
@@ -188,8 +202,16 @@ final class ShelfFolderAccessPermissionStore: ObservableObject {
     }
 
     private var pollingTask: Task<Void, Never>?
+    private var activationObserver: AnyCancellable?
 
-    private init() {}
+    private init() {
+        activationObserver = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshStatus()
+                }
+            }
+    }
 
     deinit {
         pollingTask?.cancel()
@@ -203,6 +225,8 @@ final class ShelfFolderAccessPermissionStore: ObservableObject {
     }
 
     func requestAccessPrompt() {
+        refreshStatus()
+        guard !hasDocumentsAndDownloadsAccess else { return }
         ShelfFolderAccessAuthorization.requestAccessProbe()
         beginPollingForStatusChanges()
     }
@@ -229,7 +253,11 @@ final class ShelfFolderAccessPermissionStore: ObservableObject {
             guard let self else { return }
 
             for _ in 0..<40 {
-                try? await Task.sleep(nanoseconds: 500_000_000)
+                do {
+                    try await Task.sleep(nanoseconds: 500_000_000)
+                } catch {
+                    return
+                }
 
                 let docs = ShelfFolderAccessAuthorization.hasDocumentsAccess()
                 let downloads = ShelfFolderAccessAuthorization.hasDownloadsAccess()

@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches:
+      - copy
       - main
       - dev
       - nightly
@@ -40,7 +41,7 @@ jobs:
           xcode-version: latest-stable
 
       - name: Validate privacy configuration
-        run: python3 -m unittest tests.test_privacy_configuration
+        run: python3 -m unittest tests.test_privacy_configuration tests.test_release_workflow
 
       - name: Validate timer lifecycle cleanup
         run: python3 -m unittest tests.test_timer_lifecycle

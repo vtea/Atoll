@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Complete missing Simplified and Traditional Chinese translations, including clipboard privacy settings and interpolated shortcut descriptions.
+- Refresh permission state when returning from System Settings and skip permission requests when access is already granted. This does not preserve macOS permissions when an unsigned or ad-hoc build replaces an app with a different code identity.
+- Capture area-screenshot shortcuts directly instead of treating Option-key combinations as text input.
+- Skip the Mach service listener for ad-hoc builds, even when the entitlement is embedded in the signature.
+- Publish copy releases from immutable version tags; use the imported Developer ID certificate for signing and validate the release workflow before building.
+
 ### Added
 - **Clipboard screenshots**: capture an area, window, or the full screen from the clipboard panel, notch tab, or popover, and with `⇧⌘6` for area capture. The image is written to the system pasteboard and recorded in clipboard history.
 - **Connection status HUDs**: Atoll now shows a Dynamic Island HUD when the Mac goes offline, and a compact inline HUD when it connects to Wi-Fi or Personal Hotspot, using the matching Wi-Fi or hotspot symbol and the connected network name. (#827)

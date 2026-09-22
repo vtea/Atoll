@@ -150,6 +150,7 @@ struct OnboardingView: View {
     // MARK: - Permission Request Logic
 
     func requestCameraPermission() async {
+        guard AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined else { return }
         await AVCaptureDevice.requestAccess(for: .video)
     }
 

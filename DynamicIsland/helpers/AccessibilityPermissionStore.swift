@@ -31,8 +31,16 @@ final class AccessibilityPermissionStore: ObservableObject {
     @Published private(set) var isAuthorized: Bool = AccessibilityPermissionStore.isAccessibilityAuthorized()
 
     private var pollingTask: Task<Void, Never>?
+    private var activationObserver: AnyCancellable?
 
-    private init() {}
+    private init() {
+        activationObserver = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshStatus()
+                }
+            }
+    }
 
     deinit {
         pollingTask?.cancel()
@@ -43,6 +51,8 @@ final class AccessibilityPermissionStore: ObservableObject {
     }
 
     func requestAuthorizationPrompt() {
+        refreshStatus()
+        guard !isAuthorized else { return }
 #if canImport(ApplicationServices)
         let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         let options: CFDictionary = [promptKey: true] as CFDictionary
@@ -63,7 +73,11 @@ final class AccessibilityPermissionStore: ObservableObject {
         pollingTask?.cancel()
         pollingTask = Task { [weak self] in
             for _ in 0..<30 {
-                try? await Task.sleep(nanoseconds: 500_000_000)
+                do {
+                    try await Task.sleep(nanoseconds: 500_000_000)
+                } catch {
+                    return
+                }
                 let status = Self.isAccessibilityAuthorized()
                 await MainActor.run {
                     guard let self else { return }
@@ -79,8 +93,9 @@ final class AccessibilityPermissionStore: ObservableObject {
     private func updateAuthorizationStatus(to newValue: Bool) {
         guard newValue != isAuthorized else { return }
         isAuthorized = newValue
-        if !newValue {
-            beginPollingForStatusChanges()
+        if newValue {
+            pollingTask?.cancel()
+            pollingTask = nil
         }
     }
 

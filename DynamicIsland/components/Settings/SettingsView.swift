@@ -8467,6 +8467,7 @@ private func boundShortcutDescription(for name: KeyboardShortcuts.Name) -> Strin
 
 struct ClipboardSettings: View {
     @ObservedObject var clipboardManager = ClipboardManager.shared
+    @State private var areaScreenshotShortcut: KeyboardShortcuts.Shortcut? = KeyboardShortcuts.getShortcut(for: .clipboardAreaScreenshot)
     @Default(.enableClipboardManager) var enableClipboardManager
     @Default(.clipboardHistorySize) var clipboardHistorySize
     @Default(.showClipboardIcon) var showClipboardIcon
@@ -8582,13 +8583,24 @@ struct ClipboardSettings: View {
                 }
 
                 Section {
-                    KeyboardShortcuts.Recorder("Area Screenshot:", name: .clipboardAreaScreenshot)
+                    LabeledContent("Area Screenshot:") {
+                        AreaScreenshotShortcutRecorder(shortcut: $areaScreenshotShortcut)
+                            .frame(minWidth: 130)
+                    }
                         .settingsHighlight(id: highlightID("Area Screenshot"))
-                        .disabled(!enableShortcuts)
+                        .disabled(!enableShortcuts || !enableClipboardManager)
+                    if areaScreenshotShortcut == nil {
+                        Button("Restore Area Screenshot Shortcut") {
+                            let shortcut = KeyboardShortcuts.Shortcut(.six, modifiers: [.shift, .command])
+                            KeyboardShortcuts.setShortcut(shortcut, for: .clipboardAreaScreenshot)
+                            areaScreenshotShortcut = shortcut
+                        }
+                        .disabled(!enableShortcuts || !enableClipboardManager)
+                    }
                 } header: {
                     Text("Screenshot")
                 } footer: {
-                    Text("Captures a selected area to the clipboard. Window and full-screen capture are in the clipboard camera menu.")
+                    Text("Click the shortcut field and press a key combination. Captures a selected area to the clipboard; window and full-screen capture are in the clipboard camera menu.")
                 }
 
                 Section {
