@@ -84,3 +84,31 @@ struct ClipboardTabButton: View {
         .buttonStyle(PlainButtonStyle())
     }
 }
+
+struct ClipboardScreenshotMenu<MenuLabel: View>: View {
+    @ObservedObject private var screenshotTool = ScreenshotSnippingTool.shared
+    private let label: MenuLabel
+
+    init(@ViewBuilder label: () -> MenuLabel) {
+        self.label = label()
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(ScreenshotSnippingTool.ScreenshotType.allCases, id: \.self) { type in
+                Button {
+                    ClipboardScreenshotController.shared.capture(type)
+                } label: {
+                    SwiftUI.Label(type.displayName, systemImage: type.iconName)
+                }
+            }
+        } label: {
+            label
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .disabled(screenshotTool.isSnipping)
+        .help(String(localized: "Take screenshot"))
+    }
+}

@@ -25,6 +25,7 @@ import SwiftUI
 
 extension KeyboardShortcuts.Name {
     static let clipboardHistoryPanel = Self("clipboardHistoryPanel", default: .init(.v, modifiers: [.shift, .command]))
+    static let clipboardAreaScreenshot = Self("clipboardAreaScreenshot", default: .init(.six, modifiers: [.shift, .command]))
     static let colorPickerPanel = Self("colorPickerPanel", default: .init(.p, modifiers: [.shift, .command]))
     static let screenAssistantPanel = Self("screenAssistantPanel", default: .init(.a, modifiers: [.shift, .command]))
     static let decreaseBacklight = Self("decreaseBacklight", default: .init(.f1, modifiers: [.command]))

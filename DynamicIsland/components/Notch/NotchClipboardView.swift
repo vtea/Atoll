@@ -116,17 +116,28 @@ struct NotchClipboardView: View {
                 .font(.system(size: 16, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
             Spacer()
-            if !clipboardManager.clipboardHistory.isEmpty {
-                Button(action: { showClearHistoryAlert = true }) {
-                    Image(systemName: "trash")
+            HStack(spacing: 6) {
+                ClipboardScreenshotMenu {
+                    Image(systemName: "camera")
                         .font(.system(size: 14))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(.white)
                         .frame(width: 16, height: 16)
                         .padding(5)
                         .background(Color.white.opacity(0.1))
                         .clipShape(Circle())
                 }
-                .buttonStyle(PlainButtonStyle())
+                if !clipboardManager.clipboardHistory.isEmpty {
+                    Button(action: { showClearHistoryAlert = true }) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.red)
+                            .frame(width: 16, height: 16)
+                            .padding(5)
+                            .background(Color.white.opacity(0.1))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
             }
         }
         .padding(.horizontal, 20)

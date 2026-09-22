@@ -286,6 +286,7 @@ struct ClipboardPanelHeader: View {
     @FocusState private var isSearchFieldFocused: Bool
     @State private var isSearchHovered = false
     @State private var isClearHovered = false
+    @State private var isScreenshotHovered = false
 
     private var canClear: Bool {
         selectedTab == .history ? !clipboardManager.regularHistory.isEmpty : !clipboardManager.pinnedItems.isEmpty
@@ -339,6 +340,19 @@ struct ClipboardPanelHeader: View {
                 ClipboardSegmentedTabs(selectedTab: $selectedTab)
 
                 Spacer(minLength: 0)
+
+                ClipboardScreenshotMenu {
+                    Image(systemName: "camera")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(Color.secondary)
+                        .frame(width: 26, height: 24)
+                        .background {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(Color.primary.opacity(isScreenshotHovered ? 0.1 : 0))
+                        }
+                }
+                .onHover { isScreenshotHovered = $0 }
+                .animation(.easeOut(duration: 0.16), value: isScreenshotHovered)
 
                 Button {
                     if selectedTab == .history {

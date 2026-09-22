@@ -7,6 +7,7 @@ on:
       - alpha
       - beta
       - main
+      - copy
 
   # Allow manual trigger for testing
   workflow_dispatch:
@@ -72,6 +73,7 @@ jobs:
             alpha)   CHANNEL="alpha"   ;;
             beta)    CHANNEL="beta"    ;;
             main)    CHANNEL="stable"  ;;
+            copy)    CHANNEL="copy"    ;;
             *)       echo "::error::Unexpected branch: $BRANCH"; exit 1 ;;
           esac
           echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
@@ -123,6 +125,10 @@ jobs:
               COUNT=$(git tag -l "v${BASE_VERSION}-beta.*" 2>/dev/null | wc -l | tr -d ' ')
               NEXT=$((COUNT + 1))
               VERSION="${BASE_VERSION}-beta.${NEXT}"
+              PRERELEASE="true"
+              ;;
+            copy)
+              VERSION="${BASE_VERSION}"
               PRERELEASE="true"
               ;;
             stable)
@@ -569,7 +575,7 @@ jobs:
       # 20. Update channel-specific appcast in Updates/
       # ─────────────────────────────────────────────────────────────────
       - name: Update Channel Appcast
-        if: ${{ inputs.dry_run != 'true' }}
+        if: ${{ inputs.dry_run != 'true' && steps.channel.outputs.channel != 'copy' }}
         run: |
           CHANNEL="${{ steps.channel.outputs.channel }}"
           VERSION="${{ steps.version.outputs.version }}"

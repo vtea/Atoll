@@ -98,9 +98,15 @@ struct ClipboardPopoverHeader: View {
                 Text("Clipboard")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.primary)
-                
+
                 Spacer()
-                
+
+                ClipboardScreenshotMenu {
+                    Image(systemName: "camera")
+                        .foregroundColor(.primary)
+                        .font(.system(size: 11))
+                }
+
                 // Clear button
                 Button(action: {
                     if selectedTab == .history {

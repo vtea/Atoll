@@ -418,6 +418,7 @@ private enum SettingsSearchIndex {
 
         // Shortcuts
         SettingsSearchEntry(tab: .shortcuts, title: "Enable global keyboard shortcuts", keywords: ["keyboard", "shortcut"], highlightID: SettingsTab.shortcuts.highlightID(for: "Enable global keyboard shortcuts")),
+        SettingsSearchEntry(tab: .shortcuts, title: "Area Screenshot", keywords: ["screenshot", "clipboard", "shortcut", "capture"], highlightID: SettingsTab.shortcuts.highlightID(for: "Area Screenshot")),
 
         // Timer
         SettingsSearchEntry(tab: .timer, title: "Enable timer feature", keywords: ["timer", "enable"], highlightID: SettingsTab.timer.highlightID(for: "Enable timer feature")),
@@ -455,6 +456,7 @@ private enum SettingsSearchIndex {
         SettingsSearchEntry(tab: .clipboard, title: "Save History Across Restarts", keywords: ["clipboard", "history", "save", "persist", "privacy", "disk", "disable"], highlightID: SettingsTab.clipboard.highlightID(for: "Enable Clipboard Manager")),
         SettingsSearchEntry(tab: .clipboard, title: "Display Mode", keywords: ["list", "grid", "clipboard"], highlightID: SettingsTab.clipboard.highlightID(for: "Display Mode")),
         SettingsSearchEntry(tab: .clipboard, title: "History Size", keywords: ["history", "clipboard"], highlightID: SettingsTab.clipboard.highlightID(for: "History Size")),
+        SettingsSearchEntry(tab: .clipboard, title: "Area Screenshot", keywords: ["screenshot", "capture", "clipboard", "area"], highlightID: SettingsTab.clipboard.highlightID(for: "Area Screenshot")),
 
         // Screen Assistant
         SettingsSearchEntry(tab: .screenAssistant, title: "Enable Screen Assistant", keywords: ["screen assistant", "ai"], highlightID: SettingsTab.screenAssistant.highlightID(for: "Enable Screen Assistant")),
@@ -7205,6 +7207,9 @@ struct Shortcuts: View {
                         VStack(alignment: .leading) {
                             KeyboardShortcuts.Recorder("Clipboard History:", name: .clipboardHistoryPanel)
                                 .disabled(!enableShortcuts || !enableClipboardManager)
+                            KeyboardShortcuts.Recorder("Area Screenshot:", name: .clipboardAreaScreenshot)
+                                .settingsHighlight(id: highlightID("Area Screenshot"))
+                                .disabled(!enableShortcuts || !enableClipboardManager)
                             if !enableClipboardManager {
                                 Text("Clipboard feature is disabled")
                                     .font(.caption)
@@ -8466,6 +8471,7 @@ struct ClipboardSettings: View {
     @Default(.clipboardHistorySize) var clipboardHistorySize
     @Default(.showClipboardIcon) var showClipboardIcon
     @Default(.clipboardDisplayMode) var clipboardDisplayMode
+    @Default(.enableShortcuts) var enableShortcuts
 
     private func highlightID(_ title: String) -> String {
         SettingsTab.clipboard.highlightID(for: title)
@@ -8573,6 +8579,16 @@ struct ClipboardSettings: View {
                     case .notchTab:
                         Text("Notch Tab mode shows clipboard in its own tab inside the notch. Drag text, image, or single-file items straight out to Finder or another app.")
                     }
+                }
+
+                Section {
+                    KeyboardShortcuts.Recorder("Area Screenshot:", name: .clipboardAreaScreenshot)
+                        .settingsHighlight(id: highlightID("Area Screenshot"))
+                        .disabled(!enableShortcuts)
+                } header: {
+                    Text("Screenshot")
+                } footer: {
+                    Text("Captures a selected area to the clipboard. Window and full-screen capture are in the clipboard camera menu.")
                 }
 
                 Section {

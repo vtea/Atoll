@@ -125,6 +125,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboardingWindowController: NSWindowController?
     private var cancellables = Set<AnyCancellable>()
     private var windowsHiddenForLock = false
+    private var windowsHiddenForScreenshot = false
     private var optionalShortcutHandlersRegistered = false
     private weak var focusWithoutDevToolsMenuItem: NSMenuItem?
     private weak var focusUseDevToolsMenuItem: NSMenuItem?
@@ -341,6 +342,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func restoreWindowsAfterLock() {
         guard windowsHiddenForLock else { return }
         windowsHiddenForLock = false
+        guard !windowsHiddenForScreenshot else { return }
 
         if Defaults[.showOnAllDisplays] {
             for window in windows.values {
@@ -351,6 +353,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.orderFrontRegardless()
             window.alphaValue = 1
         }
+    }
+
+    @MainActor
+    func hideNotchWindowsForScreenshot() {
+        guard !windowsHiddenForScreenshot else { return }
+        guard !windowsHiddenForLock else { return }
+        windowsHiddenForScreenshot = true
+
+        for window in currentDynamicIslandWindows() {
+            window.alphaValue = 0
+            window.orderOut(nil)
+        }
+    }
+
+    @MainActor
+    func restoreNotchWindowsAfterScreenshot() {
+        guard windowsHiddenForScreenshot else { return }
+        windowsHiddenForScreenshot = false
+        guard !windowsHiddenForLock else { return }
+
+        for window in currentDynamicIslandWindows() {
+            window.alphaValue = 1
+        }
+        reassertDynamicIslandWindowSpacePresence()
     }
     
     private func cleanupWindows(shouldInvert: Bool = false) {
@@ -395,7 +421,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     private func reassertDynamicIslandWindowSpacePresence() {
-        guard !windowsHiddenForLock else { return }
+        guard !windowsHiddenForLock, !windowsHiddenForScreenshot else { return }
 
         syncNotchSpaceMembership()
 
@@ -1463,6 +1489,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        KeyboardShortcuts.onKeyDown(for: .clipboardAreaScreenshot) {
+            guard Defaults[.enableShortcuts], Defaults[.enableClipboardManager] else { return }
+            Task { @MainActor in
+                ClipboardScreenshotController.shared.capture(.area)
+            }
+        }
+
         KeyboardShortcuts.onKeyDown(for: .colorPickerPanel) {
             guard Defaults[.enableShortcuts], Defaults[.enableColorPickerFeature] else { return }
             ColorPickerPanelManager.shared.toggleColorPickerPanel()
@@ -1525,6 +1558,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateFeatureShortcutAvailability() {
         updateShortcut(.startDemoTimer, isEnabled: Defaults[.enableShortcuts] && Defaults[.enableTimerFeature])
         updateShortcut(.clipboardHistoryPanel, isEnabled: Defaults[.enableShortcuts] && Defaults[.enableClipboardManager])
+        updateShortcut(.clipboardAreaScreenshot, isEnabled: Defaults[.enableShortcuts] && Defaults[.enableClipboardManager])
         updateShortcut(.colorPickerPanel, isEnabled: Defaults[.enableShortcuts] && Defaults[.enableColorPickerFeature])
         updateShortcut(.screenAssistantPanel, isEnabled: Defaults[.enableShortcuts] && Defaults[.enableScreenAssistant])
         updateShortcut(.toggleTerminalTab, isEnabled: Defaults[.enableShortcuts] && Defaults[.enableTerminalFeature])
