@@ -18,6 +18,7 @@
 
 import AppKit
 import Foundation
+import Security
 import AtollExtensionKit
 
 /// Shared constants for the Atoll extension XPC service.
@@ -45,10 +46,11 @@ final class ExtensionXPCServiceHost: NSObject, NSXPCListenerDelegate {
     func start() {
         guard listener == nil else { return }
 
-        // In UI testing environments (like CI), the mach-services entitlement might be stripped
-        // to bypass amfid ad-hoc signing crashes. Starting the listener without the entitlement crashes the app.
-        if AppRuntimeEnvironment.isUITesting {
-            Logger.log("Bypassing Atoll XPC listener for UI testing", category: .extensions)
+        // Starting NSXPCListener(machServiceName:) without
+        // com.apple.security.mach-services kills the process. CI and unsigned
+        // copy builds strip or omit that entitlement, so skip the listener.
+        if AppRuntimeEnvironment.isUITesting || !hasMachServicesEntitlement {
+            Logger.log("Bypassing Atoll XPC listener without mach-services entitlement", category: .extensions)
             return
         }
 
@@ -58,6 +60,21 @@ final class ExtensionXPCServiceHost: NSObject, NSXPCListenerDelegate {
         listener.resume()
 
         Logger.log("Started Atoll XPC listener", category: .extensions)
+    }
+
+    private var hasMachServicesEntitlement: Bool {
+        guard let task = SecTaskCreateFromSelf(nil) else { return false }
+        var error: Unmanaged<CFError>?
+        let value = SecTaskCopyValueForEntitlement(
+            task,
+            "com.apple.security.mach-services" as CFString,
+            &error
+        )
+        if let error {
+            _ = error.takeRetainedValue()
+            return false
+        }
+        return value != nil
     }
 
     func stop() {

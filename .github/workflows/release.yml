@@ -346,25 +346,15 @@ jobs:
         run: |
           sudo DevToolsSecurity -enable
 
-          if ! plutil_out=$(plutil -remove com.apple.security.mach-services DynamicIsland/DynamicIsland.entitlements 2>&1); then
-            if printf '%s' "$plutil_out" | grep -q "No value to remove"; then
-              echo "mach-services entitlement already absent, continuing."
-            else
-              echo "::error::plutil failed to modify entitlements: $plutil_out"
-              exit 1
-            fi
-          fi
-
           xcodebuild build \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
             -configuration Release \
             -destination "platform=macOS" \
             -derivedDataPath build/DerivedData \
-            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=YES \
-            CODE_SIGN_INJECT_BASE_ENTITLEMENTS=YES \
+            CODE_SIGNING_ALLOWED=NO \
             ASSETCATALOG_COMPILER_APPICON_NAME="${{ steps.build_settings.outputs.icon_name }}"
 
           APP=$(find build/DerivedData/Build/Products/Release -name "${APP_NAME}.app" -maxdepth 2 | head -1)
@@ -400,16 +390,6 @@ jobs:
             exit 1
           fi
           echo "✅ BluetoothHUDAnimations: $COPIED .mov files copied"
-
-      # An ad-hoc signature made on the runner is invalid on every other Mac.
-      # Copying resources after that seal also breaks it. Gatekeeper then
-      # reports a Safari download as damaged. Leave the app unsigned.
-      - name: Drop ad-hoc signature
-        if: steps.channel.outputs.channel == 'copy'
-        run: |
-          APP_PATH="build/export/${APP_NAME}.app"
-          codesign --remove-signature "$APP_PATH/Contents/MacOS/${APP_NAME}"
-          codesign --remove-signature "$APP_PATH"
 
       # ─────────────────────────────────────────────────────────────────
       # 13. Code sign Sparkle XPC services
