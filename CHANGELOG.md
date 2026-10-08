@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Update LLM pricing data through 2026-10-08. Added Claude Haiku 5.5, Claude Sonnet 5.5, Gemini Nano Banana 2.1, GPT-6.1 Sol, and GPT-6.1 Sol Pro; removed Claude 3 Haiku; refreshed gpt-oss-120b and gpt-oss-20b rates.
+
 ### Fixed
 - Complete missing Simplified and Traditional Chinese translations, including clipboard privacy settings and interpolated shortcut descriptions.
 - Refresh permission state when returning from System Settings and skip permission requests when access is already granted. This does not preserve macOS permissions when an unsigned or ad-hoc build replaces an app with a different code identity.
