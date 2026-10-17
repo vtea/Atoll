@@ -520,6 +520,51 @@ jobs:
           echo "Unsigned app has no code signature."
 
       # ─────────────────────────────────────────────────────────────────
+      # 12e. Sign the copy build with a stable local certificate
+      # ─────────────────────────────────────────────────────────────────
+      # TCC keys privacy grants to the designated requirement. Without one
+      # stable certificate, every update looks like a new app and users are
+      # asked for Accessibility, Camera, Calendar and the rest again.
+      - name: Sign with local certificate
+        id: local_signing
+        if: steps.signing.outputs.enabled != 'true'
+        env:
+          LOCAL_CERTIFICATE_P12: ${{ secrets.LOCAL_SIGNING_CERTIFICATE_P12 }}
+          LOCAL_CERTIFICATE_PASSWORD: ${{ secrets.LOCAL_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$LOCAL_CERTIFICATE_P12" ]; then
+            echo "::warning::LOCAL_SIGNING_CERTIFICATE_P12 is not set. Users will be asked for every permission again after each update."
+            exit 0
+          fi
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/local-signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          CERT_PATH="$RUNNER_TEMP/local-certificate.p12"
+          echo "$LOCAL_CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
+          security import "$CERT_PATH" -P "$LOCAL_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Self-signed certificates are untrusted, so `-v` would hide them;
+          # sign by SHA-1 hash instead of by name.
+          IDENTITY=$(security find-identity -p codesigning "$KEYCHAIN_PATH" | awk '/^ *[0-9]+\)/ { print $2; exit }')
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::No code-signing identity found in LOCAL_SIGNING_CERTIFICATE_P12"
+            exit 1
+          fi
+
+          ENTITLEMENTS_PATH="$RUNNER_TEMP/local.entitlements"
+          cp DynamicIsland/DynamicIsland.entitlements "$ENTITLEMENTS_PATH"
+          /usr/libexec/PlistBuddy -c 'Delete :com.apple.security.mach-services' "$ENTITLEMENTS_PATH" 2>/dev/null || true
+          scripts/sign-app.sh "build/export/${APP_NAME}.app" "$IDENTITY" "$ENTITLEMENTS_PATH"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      # ─────────────────────────────────────────────────────────────────
       # 13. Code sign Sparkle XPC services
       # ─────────────────────────────────────────────────────────────────
       - name: Sign Sparkle XPC Services
@@ -719,9 +764,13 @@ jobs:
               '```' \
               '' \
               'Use the path you actually dragged the app to.' \
-              '' \
-              'This unsigned build has no stable signing identity. macOS permissions may need to be removed and granted again after updates. Use builds signed by the same Developer ID team to retain identity across updates.' \
               >> build/release_notes.md
+            if [ "${{ steps.local_signing.outputs.signed }}" != "true" ]; then
+              printf '%s\n' \
+                '' \
+                'This unsigned build has no stable signing identity. macOS permissions may need to be removed and granted again after updates. Use builds signed by the same Developer ID team to retain identity across updates.' \
+                >> build/release_notes.md
+            fi
           fi
           echo "📝 Release notes written to build/release_notes.md"
 

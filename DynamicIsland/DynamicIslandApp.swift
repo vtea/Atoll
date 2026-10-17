@@ -1707,13 +1707,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
             window.contentView = NSHostingView(rootView: OnboardingView(
-                onFinish: {
+                onFinish: { [weak self] in
+                    // Onboarding is done even if the notch hello animation never
+                    // ran (e.g. the connectivity HUD was showing at launch).
+                    self?.coordinator.firstLaunch = false
                     window.orderOut(nil)
                     NSApp.setActivationPolicy(.accessory)
                     window.close()
                     NSApp.deactivate()
                 },
-                onOpenSettings: {
+                onOpenSettings: { [weak self] in
+                    self?.coordinator.firstLaunch = false
                     window.close()
                     SettingsWindowController.shared.showWindow()
                 }

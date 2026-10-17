@@ -23,6 +23,7 @@
 import SwiftUI
 import AVFoundation
 import Defaults
+import EventKit
 
 enum OnboardingStep {
     case welcome
@@ -48,7 +49,7 @@ struct OnboardingView: View {
             case .welcome:
                 WelcomeView {
                     withAnimation(.easeInOut(duration: 0.6)) {
-                        step = .cameraPermission
+                        step = stepSkippingGranted(.cameraPermission)
                     }
                 }
                 .transition(.opacity)
@@ -63,13 +64,13 @@ struct OnboardingView: View {
                         Task {
                             await requestCameraPermission()
                             withAnimation(.easeInOut(duration: 0.6)) {
-                                step = .calendarPermission
+                                step = stepSkippingGranted(.calendarPermission)
                             }
                         }
                     },
                     onSkip: {
                         withAnimation(.easeInOut(duration: 0.6)) {
-                            step = .calendarPermission
+                            step = stepSkippingGranted(.calendarPermission)
                         }
                     }
                 )
@@ -148,6 +149,19 @@ struct OnboardingView: View {
     }
 
     // MARK: - Permission Request Logic
+
+    /// Skips permission pages the user has already granted, so a relaunch that
+    /// shows onboarding again does not look like a new authorization request.
+    private func stepSkippingGranted(_ candidate: OnboardingStep) -> OnboardingStep {
+        switch candidate {
+        case .cameraPermission where AVCaptureDevice.authorizationStatus(for: .video) == .authorized:
+            return stepSkippingGranted(.calendarPermission)
+        case .calendarPermission where [.authorized, .fullAccess].contains(EKEventStore.authorizationStatus(for: .event)):
+            return .musicPermission
+        default:
+            return candidate
+        }
+    }
 
     func requestCameraPermission() async {
         guard AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined else { return }

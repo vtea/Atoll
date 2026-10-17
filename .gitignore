@@ -165,3 +165,6 @@ implementation_plan.md
 walkthrough.md
 TemporaryAssets/
 *.profraw
+
+# Shared signing helper used by package-local.sh and the release workflow.
+!scripts/sign-app.sh

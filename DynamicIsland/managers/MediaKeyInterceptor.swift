@@ -142,7 +142,9 @@ final class MediaKeyInterceptor {
     private var retryStartDate: Date?
     private var retryAttempts = 0
 #if canImport(ApplicationServices)
-    private var didRequestAccessibilityPrompt = false
+    /// Persisted so the system prompt appears once per install, not on every
+    /// launch. After that, Settings › Accessibility is the way back in.
+    private static let didRequestAccessibilityPromptKey = "mediaKeyInterceptor.didRequestAccessibilityPrompt"
 #endif
     private let systemDefinedEventType = CGEventType(rawValue: NX_SYSDEFINED_EVENT_TYPE)
     private let eventTapLocations: [CGEventTapLocation] = [.cghidEventTap, .cgSessionEventTap]
@@ -462,12 +464,13 @@ final class MediaKeyInterceptor {
 #if canImport(ApplicationServices)
 extension MediaKeyInterceptor {
     private func requestAccessibilityPermissionIfNeeded() {
-        guard !AXIsProcessTrusted(), !didRequestAccessibilityPrompt else { return }
+        let defaults = UserDefaults.standard
+        guard !AXIsProcessTrusted(), !defaults.bool(forKey: Self.didRequestAccessibilityPromptKey) else { return }
         if AppRuntimeEnvironment.isUITesting { return }
         let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         let options: CFDictionary = [promptKey: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
-        didRequestAccessibilityPrompt = true
+        defaults.set(true, forKey: Self.didRequestAccessibilityPromptKey)
     }
 }
 #endif

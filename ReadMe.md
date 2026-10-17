@@ -91,6 +91,14 @@ Atoll turns the MacBook notch into a focused command surface for media, system i
 - Pick the gesture skip behaviour (track vs ±10s) independently from the skip button configuration so swipes can scrub while buttons change tracks—or vice versa.
 - Horizontal swipes trigger the same haptics and button animations you see in the notch, keeping visual feedback consistent with tap interactions.
 
+## Local Signing
+macOS ties privacy permissions to the app's code signature. `scripts/package-local.sh` signs ad-hoc by default, so each rebuild looks like a new app and every permission is requested again. To keep permissions across rebuilds, sign with one stable certificate:
+1) In Keychain Access choose **Certificate Assistant → Create a Certificate…**, name it `Atoll Local Signing`, set Identity Type to **Self-Signed Root** and Certificate Type to **Code Signing**.
+2) Build with `SIGN_IDENTITY="Atoll Local Signing" scripts/package-local.sh`.
+3) Back up the certificate with its private key (.p12). A new certificate means permissions are requested once more.
+
+For copy-channel releases without Developer ID credentials, export the same certificate as base64 and store it in the `LOCAL_SIGNING_CERTIFICATE_P12` and `LOCAL_SIGNING_CERTIFICATE_PASSWORD` secrets; the release workflow then signs with it instead of shipping an unsigned app.
+
 ## Troubleshooting (Basics)
 - After granting Accessibility or Screen Recording, quit and relaunch the app.
 - If metrics are empty, enable categories in Settings → Stats.
