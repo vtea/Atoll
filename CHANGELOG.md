@@ -8,9 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Update LLM pricing data through 2026-10-17. Added Gemini 4 Argon; removed Claude Sonnet 4; refreshed Gemini 3.8 Flash, GPT-5.6 Sol, GPT-5.6 Sol Pro, and gpt-oss-120b rates.
 - Update LLM pricing data through 2026-10-08. Added Claude Haiku 5.5, Claude Sonnet 5.5, Gemini Nano Banana 2.1, GPT-6.1 Sol, and GPT-6.1 Sol Pro; removed Claude 3 Haiku; refreshed gpt-oss-120b and gpt-oss-20b rates.
 
 ### Fixed
+- Skip permission prompts at launch when access is already granted. Copy builds keep a stable signing identity, onboarding skips camera and calendar pages that are already authorized, and the media-key accessibility prompt is shown once per install.
 - Complete missing Simplified and Traditional Chinese translations, including clipboard privacy settings and interpolated shortcut descriptions.
 - Refresh permission state when returning from System Settings and skip permission requests when access is already granted. This does not preserve macOS permissions when an unsigned or ad-hoc build replaces an app with a different code identity.
 - Capture area-screenshot shortcuts directly instead of treating Option-key combinations as text input.
